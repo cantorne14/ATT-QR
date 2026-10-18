@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { Role } from './profiles';
 
 export type Subject = {
   id: string;
@@ -17,7 +18,7 @@ export type Subject = {
  */
 export async function getSubjects(
   userId: string,
-  role: 'student' | 'teacher'
+  role: Role
 ): Promise<{ subjects: Subject[]; error: string | null }> {
   let query = supabase
     .from('subjects')

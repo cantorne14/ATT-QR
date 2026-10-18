@@ -58,12 +58,18 @@ export default function Index() {
 
           <View style={styles.roleBadge}>
             <Ionicons
-              name={teacher ? 'school-outline' : 'person-outline'}
+              name={
+                teacher
+                  ? 'school-outline'
+                  : role === 'admin'
+                    ? 'shield-checkmark-outline'
+                    : 'person-outline'
+              }
               size={16}
               color="#EAF3FF"
             />
             <Text style={styles.roleBadgeText}>
-              {teacher ? 'TEACHER' : 'STUDENT'}
+              {teacher ? 'TEACHER' : role === 'admin' ? 'ADMIN' : 'STUDENT'}
             </Text>
           </View>
         </View>

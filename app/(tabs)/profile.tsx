@@ -125,11 +125,17 @@ export default function ProfileScreen() {
           ) : (
             <View style={[styles.roleBadge, styles.roleBadgeStudent]}>
               <Ionicons
-                name="person-outline"
+                name={
+                  profile?.role === 'admin'
+                    ? 'shield-checkmark-outline'
+                    : 'person-outline'
+                }
                 size={16}
                 color="#163D70"
               />
-              <Text style={styles.roleBadgeText}>Student</Text>
+              <Text style={styles.roleBadgeText}>
+                {profile?.role === 'admin' ? 'Admin' : 'Student'}
+              </Text>
             </View>
           )}
 

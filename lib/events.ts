@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { buildQRPayload } from './qr';
+import type { Role } from './profiles';
 
 export type Event = {
   eventId: string;
@@ -211,7 +212,7 @@ function hasClassEnded(
  */
 export async function getTodaysClasses(
   userId: string,
-  role: 'student' | 'teacher'
+  role: Role
 ): Promise<{ classes: TodayClass[]; error: string | null }> {
   const now = new Date();
   const nowMs = now.getTime();

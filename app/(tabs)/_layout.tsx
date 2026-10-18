@@ -5,13 +5,16 @@ import { COLORS } from '@/constants/colors';
 import { useRole } from '@/lib/auth';
 
 /**
- * Students get Scan, teachers get Events. The hidden tab is removed from
- * the bar with `href: null`; the screen itself stays guarded by the role
- * check inside it, and the database RLS remains the real control.
+ * Students get Scan, teachers get Events, and admins get the Admin tab.
+ * The hidden tab is removed from the bar with `href: null`; the screen
+ * itself stays guarded by the role check inside it, and the database RLS
+ * remains the real control.
  */
 export default function TabLayout() {
   const { role, roleLoading } = useRole();
   const teacher = role === 'teacher';
+  const student = role === 'student';
+  const admin = role === 'admin';
 
   return (
     <Tabs
@@ -28,12 +31,11 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
+          href: roleLoading || admin ? null : '/',
           title: 'Home',
-          // Home renders its own branded header inside the scroll view.
-          headerShown: false,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'home-sharp' : 'home-outline'}
+              name={focused ? 'home' : 'home-outline'}
               color={color}
               size={24}
             />
@@ -43,7 +45,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="scan"
         options={{
-          href: roleLoading || teacher ? null : '/(tabs)/scan',
+          href: roleLoading || !student ? null : '/(tabs)/scan',
           title: 'Scan',
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
@@ -69,6 +71,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="admin"
+        options={{
+          title: 'Dashboard',
+          href: role === 'admin' ? '/admin' : null,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'grid' : 'grid-outline'}
+              color={color}
+              size={24}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="subjects"
         options={{
           title: 'Subjects',
@@ -85,6 +101,7 @@ export default function TabLayout() {
         name="history"
         options={{
           title: 'History',
+          href: roleLoading || admin ? null : undefined,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'time' : 'time-outline'}

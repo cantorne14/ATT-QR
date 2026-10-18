@@ -24,7 +24,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text not null,
   full_name text,
-  role text not null default 'student' check (role in ('student', 'teacher')),
+  role text not null default 'student' check (role in ('student', 'teacher', 'admin')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -37,10 +37,13 @@ create policy "Profiles are viewable by owner"
   on public.profiles for select
   using (auth.uid() = id);
 
+-- `admin` is granted manually by the project owner from the dashboard,
+-- never through sign-up, so the client may only create a student or
+-- teacher profile for itself.
 drop policy if exists "Users can insert their own profile" on public.profiles;
 create policy "Users can insert their own profile"
   on public.profiles for insert
-  with check (auth.uid() = id);
+  with check (auth.uid() = id and role in ('student', 'teacher'));
 
 drop policy if exists "Users can update their own profile" on public.profiles;
 create policy "Users can update their own profile"
@@ -271,7 +274,7 @@ begin
 end;
 $$;
 
--- Prevent a normal signed-in user from changing their own role to teacher.
+-- Prevent a normal signed-in user from changing their own role (to teacher or admin).
 create or replace function public.prevent_profile_role_escalation()
 returns trigger
 language plpgsql
@@ -488,5 +491,176 @@ $$;
 
 revoke all on function public.register_qr_attendance(text) from public;
 grant execute on function public.register_qr_attendance(text) to authenticated;
+
+commit;
+
+-- ============================================================
+-- ADDENDUM — Admin dashboard totals (mirrors migrations/005)
+--
+-- Adds two functions only: `is_admin`, which reads the caller's role
+-- with elevated privileges so it can be used inside a policy on
+-- `profiles` without recursing through that table's RLS, and
+-- `get_admin_dashboard_stats`, which returns the four Admin dashboard
+-- totals. No table, column, row or existing policy is modified, and no
+-- admin gains row-level access to `profiles` or `attendance`.
+--
+-- General school events are the events with no subject, which is the
+-- same test the app already uses to label an event "General event".
+-- Subject and class attendance is excluded inside the function.
+-- Idempotent: safe to run more than once.
+-- ============================================================
+
+begin;
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'admin'
+  );
+$$;
+
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to authenticated;
+
+create or replace function public.get_admin_dashboard_stats()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    return jsonb_build_object(
+      'success', false,
+      'code', 'not_admin',
+      'message', 'Administrator access is required.'
+    );
+  end if;
+
+  return jsonb_build_object(
+    'success', true,
+    'students', (
+      select count(*) from public.profiles where role = 'student'
+    ),
+    'teachers', (
+      select count(*) from public.profiles where role = 'teacher'
+    ),
+    'generalEvents', (
+      select count(*) from public.events where subject_id is null
+    ),
+    'generalEventAttendance', (
+      select count(*)
+      from public.attendance a
+      join public.events e on e.id = a.event_id
+      where e.subject_id is null
+    )
+  );
+end;
+$$;
+
+revoke all on function public.get_admin_dashboard_stats() from public;
+grant execute on function public.get_admin_dashboard_stats() to authenticated;
+
+commit;
+
+-- ============================================================
+-- ADDENDUM — Admin user management, read only (mirrors
+-- migrations/006)
+--
+-- One SELECT policy: an admin may read the profile rows of students
+-- and teachers. It grants no insert, update or delete, and `role` is
+-- limited to those two values, so no admin row is exposed and no
+-- account can be edited or promoted from the app. Students and
+-- teachers are unaffected because `is_admin()` is false for them.
+-- Idempotent: safe to run more than once.
+-- ============================================================
+
+begin;
+
+drop policy if exists "Admins can view student and teacher profiles" on public.profiles;
+create policy "Admins can view student and teacher profiles"
+  on public.profiles for select to authenticated
+  using (public.is_admin() and profiles.role in ('student', 'teacher'));
+
+commit;
+
+-- ============================================================
+-- ADDENDUM — Admin attendance report for general events (mirrors
+-- migrations/007)
+--
+-- One admin-only function returning per-event attendance summaries
+-- and one overall total for general school events. Every query uses
+-- `events.subject_id is null`, the same test as the dashboard, so
+-- subject and class attendance can never appear here, and the
+-- unfiltered `totalRecords` matches the dashboard's
+-- `generalEventAttendance`. Aggregates only: no attendance row is
+-- returned, no table, column, policy or existing function changes.
+-- Idempotent: safe to run more than once.
+-- ============================================================
+
+begin;
+
+create or replace function public.get_general_event_attendance_report(
+  p_from timestamptz default null,
+  p_to timestamptz default null
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    return jsonb_build_object(
+      'success', false,
+      'code', 'not_admin',
+      'message', 'Administrator access is required.'
+    );
+  end if;
+
+  return jsonb_build_object(
+    'success', true,
+    'totalRecords', (
+      select count(*)
+      from public.attendance a
+      join public.events e on e.id = a.event_id
+      where e.subject_id is null
+        and (p_from is null or a.scanned_at >= p_from)
+        and (p_to is null or a.scanned_at <= p_to)
+    ),
+    'events', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'eventId', e.id,
+          'title', e.title,
+          'startTime', e.start_time,
+          'endTime', e.end_time,
+          'records', count(a.id)
+        )
+        order by e.start_time desc nulls last, e.title
+      )
+      from public.events e
+      join public.attendance a on a.event_id = e.id
+      where e.subject_id is null
+        and (p_from is null or a.scanned_at >= p_from)
+        and (p_to is null or a.scanned_at <= p_to)
+      group by e.id, e.title, e.start_time, e.end_time
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+
+revoke all on function public.get_general_event_attendance_report(timestamptz, timestamptz) from public;
+grant execute on function public.get_general_event_attendance_report(timestamptz, timestamptz) to authenticated;
 
 commit;

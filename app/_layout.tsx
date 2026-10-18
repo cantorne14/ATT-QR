@@ -25,16 +25,13 @@ export default function RootLayout() {
   const path = segments?.[0];
   const inAuthGroup = path === 'login' || path === 'register';
   const inTabsGroup = path === '(tabs)';
+  const inAdminGroup = path === 'admin';
 
-  // Signed-out users should go to login unless already
-  // on the login or registration screen.
   if (!session && !inAuthGroup) {
     return <Redirect href="/login" />;
   }
 
-  // Signed-in users should go to the main tabs
-  // unless already inside the tabs group.
-  if (session && !inTabsGroup) {
+  if (session && !inTabsGroup && !inAdminGroup && !inAuthGroup) {
     return <Redirect href="/(tabs)" />;
   }
 
@@ -43,6 +40,7 @@ export default function RootLayout() {
       <Stack.Screen name="login" />
       <Stack.Screen name="register" />
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="admin" />
     </Stack>
   );
 }

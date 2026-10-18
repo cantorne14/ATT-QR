@@ -1,6 +1,11 @@
 import { supabase } from './supabase';
 
-export type Role = 'student' | 'teacher';
+/**
+ * `admin` is assigned manually by the project owner through the Supabase
+ * dashboard. It is never offered during sign-up, and the database rejects
+ * any client attempt to create or change a profile into that role.
+ */
+export type Role = 'student' | 'teacher' | 'admin';
 
 export type Profile = {
   id: string;
